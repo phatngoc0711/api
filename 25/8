@@ -1,0 +1,119 @@
+http://dobon.net/vb/dotnet/process/checkprevinstance.html
+
+
+																																																																									
+1、Mục đích																																																																									
+			Smart receipt function access library スマートレシート機能アクセスライブラリ vốn dĩ không phải là server app cho nên không phải là được tạo đối ứng cho nhiều yêu cầu																																																																						
+			Theo tình hình lần này thì cần chạy library đó trên server, và thực thi mộ chuỗi yêu cầu từ nhiều máy tính tiền																																																																						
+			Đang giả định application là access từ nhiều máy tính tiền thì thông qua HTTP, trên server thì chạy bằng IIS																																																																						
+			Để đối ứng cho điều này thì cần confiem trước xem là có thể control một loạt trên IIS hay không （control loại trừ）																																																																						
+			Cho tạo application dùng để control loại trừ chạy trên IIS dành cho chúng																																																																						
+																																																																									
+2、Khái quát																																																																									
+			Xử lý một chuỗi kết quả có thục hiện control loại trừ đối ứng yêu cầu đến IIS																																																																						
+			Về phương pháp thì sử dụng Mutex để thực hiện control loại trừ giữa các process																																																																						
+
+
+																																																																																
+			3、Chi tiết																																																																													
+					3、1、Xử lý Smart receipt agent access relay スマートレシートエージェントアクセス中継処理（ Dùng để confirm control loại trừ WEB application WEBアプリ排他制御確認用）																																																																											
+																																																																																
+								web-api　																																																																								
+										URL			SmartReceipt/MainService_test.ashx																																																																			
+																																																																																
+													POST				shop_cd=4301								店舗コード																																																							
+																	pos_no=01								POS番号																																																							
+																																																																																
+										Trả về			RC=0/-1						Retrun code リターンコード																																																													
+																			0：成功																	Thành công																																												
+																			1：（排他リトライ後）処理１成功																	(Sau khi retry loại trừ) Xử lý 1 thành công																																												
+																			-1：処理１失敗																	Thất bại xử lý 1																																												
+																			-2：（排他リトライ後）処理１失敗																	(Sau khi retry loại trừ) Xử lý 1 thất bại																																												
+																			-3～-8：予備																	Dự bị																																												
+																			-9：排他リトライ後排他失敗																	Thất bại loại trừ sau khi retry loại trừ																																												
+
+
+
+
+																																																								
+					Xử lý																																																			
+							Main xử lý (web-api）																																																	
+								Output log bắt đầu										(1)																	Log4net																			
+								Yêu cầu loại trừ để thực thi xử lý １																																																
+										Trường hợp OK																																														
+												Thực thi xử lý 1																																												
+										Trường hợp NG																																														
+												Output log								(5)																																				
+												Wait thời gian chỉ định																																												
+												※Lặp đi lặp lại chuyển đổi yêu cầu loại trừ ghi trên đối với phần số lần chỉ định																																												
+								Output log kết thúc												(4)																																				
+								Kết thúc phần chính xử lý																																																
+																																																								
+		--					Xử lý 1（Hàm nội bộ）																																																	
+		--							Output log bắt đầu								(2)																																					
+			--						Wait thời gian chỉ định																																															
+				--					Output log kết thúc								(3)																																						
+			--						Kết thúc xử lý																																															
+
+
+
+
+
+																																																
+			Chỉ định tại config																																													
+				Xử lý main						Wait thời gian chỉ định												Đơn vị ms																										
+				Xử lý 1						Wait thời gian chỉ định												Đơn vị ms																										
+				Số lần retry loại trừ 排他リトライ回数																																												
+																																																
+	File log																																															
+			File log WEB-api																																													
+																																																
+			yyyymmdd.log																		(1)(4)(5)						Output log của main xử lý																					
+					例		セッションID　A									成功 Thành công																																
+							セッションID　B									Wait後リトライで成功  Retry sau khi Wait thì thành công 																																
+							セッションID　C									成功 Thành công																																
+							セッションID　D									Wait後リトライで失敗 Retry sau khi Wait vẫn thất bại																																
+
+
+
+
+
+
+yyyy/mm/dd hh:mm:ss	（セッションID A）	----------------------------------------------------
+yyyy/mm/dd hh:mm:ss	（セッションID A）	MainService.ashx	start（shopCD:xxxxx、PosNo：xx）
+yyyy/mm/dd hh:mm:ss	（セッションID B）	----------------------------------------------------
+yyyy/mm/dd hh:mm:ss	（セッションID B）	MainService.ashx	start（shopCD:xxxxx、PosNo：xx）
+yyyy/mm/dd hh:mm:ss	（セッションID B）	MainService.ashx	Wait（shopCD:xxxxx、PosNo：xx）
+yyyy/mm/dd hh:mm:ss	（セッションID A）	MainService.ashx	end（shopCD:xxxxx、PosNo：xx、RC=0）
+yyyy/mm/dd hh:mm:ss	（セッションID A）	----------------------------------------------------
+yyyy/mm/dd hh:mm:ss	（セッションID B）	MainService.ashx	end（shopCD:xxxxx、PosNo：xx、RC=0）
+yyyy/mm/dd hh:mm:ss	（セッションID B）	----------------------------------------------------
+yyyy/mm/dd hh:mm:ss	（セッションID C）	----------------------------------------------------
+yyyy/mm/dd hh:mm:ss	（セッションID C）	MainService.ashx	start（shopCD:xxxxx、PosNo：xx）
+yyyy/mm/dd hh:mm:ss	（セッションID D）	MainService.ashx	start（shopCD:xxxxx、PosNo：xx）
+yyyy/mm/dd hh:mm:ss	（セッションID D）	MainService.ashx	Wait（shopCD:xxxxx、PosNo：xx）
+yyyy/mm/dd hh:mm:ss	（セッションID D）	MainService.ashx	end（shopCD:xxxxx、PosNo：xx、RC=-2）
+yyyy/mm/dd hh:mm:ss	（セッションID D）	----------------------------------------------------
+yyyy/mm/dd hh:mm:ss	（セッションID C）	MainService.ashx	end（shopCD:xxxxx、PosNo：xx、RC=0）
+yyyy/mm/dd hh:mm:ss	（セッションID C）	----------------------------------------------------
+
+
+
+
+																																								
+					yyyymmdd_店舗コード_POS番号.log									(2)(3)      					Output log của xử lý 1											
+																																								
+
+
+
+yyyy/mm/dd hh:mm:ss	（セッションID A ）	----------------------------------------------------
+yyyy/mm/dd hh:mm:ss	（セッションID A）	SmartReceiptAgentAccess	start（shopCD:xxxxx、PosNo：xx）
+yyyy/mm/dd hh:mm:ss	（セッションID A）	SmartReceiptAgentAccess	end（shopCD:xxxxx、PosNo：xx、RC=0）
+yyyy/mm/dd hh:mm:ss	（セッションID B）	----------------------------------------------------
+yyyy/mm/dd hh:mm:ss	（セッションID B）	SmartReceiptAgentAccess	start（shopCD:xxxxx、PosNo：xx）
+yyyy/mm/dd hh:mm:ss	（セッションID B）	SmartReceiptAgentAccess	end（shopCD:xxxxx、PosNo：xx、RC=0）
+yyyy/mm/dd hh:mm:ss	（セッションID B）	----------------------------------------------------
+yyyy/mm/dd hh:mm:ss	（セッションID C）	----------------------------------------------------
+yyyy/mm/dd hh:mm:ss	（セッションID C）	SmartReceiptAgentAccess	start（shopCD:xxxxx、PosNo：xx）
+yyyy/mm/dd hh:mm:ss	（セッションID C）	SmartReceiptAgentAccess	end（shopCD:xxxxx、PosNo：xx、RC=0）
+
