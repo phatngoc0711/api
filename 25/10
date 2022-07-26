@@ -1,0 +1,105 @@
+Imports System.Threading
+Imports System.Web
+Imports System.Web.Services
+Public Class webapi
+    Public Property webpos_shop_cd As String
+    Public Property webpos_pos_no As String
+    Public Property t As String
+    Public Property h As String
+End Class
+Public Class objects
+    Public Property tag_name As String
+    Public Property values As String()
+End Class
+Public Class methods
+    Public Property method_name As String
+    Public Property objects As Object()
+End Class
+Public Class datas
+    Public Property webapi As webapi
+    Public Property methods As methods()
+End Class
+Public Class Main
+    Implements System.Web.IHttpHandler
+    Shared Sub Main()
+        'Dim mutexName As String = "MyApplicationName"
+        'Dim mutex As New System.Threading.Mutex(False, mutexName)
+        'Dim hasHandle As Boolean = False
+        'Try
+        '    Try
+        '        hasHandle = mutex.WaitOne(0, False)
+        '    Catch ex As System.Threading.AbandonedMutexException
+        '        hasHandle = True
+        '    End Try
+        '    If hasHandle = False Then
+        '        MessageBox.Show("多重起動はできません。")
+        '        Return
+        '    End If
+        '    Application.EnableVisualStyles()
+        '    Application.SetCompatibleTextRenderingDefault(False)
+        '    Application.Run(New Form1())
+        'Finally
+        '    If hasHandle Then
+        '        mutex.ReleaseMutex()
+        '    End If
+        '    mutex.Close()
+        'End Try
+    End Sub
+    Dim mutex As New Mutex()
+    Dim numhits As Integer = 1
+    Dim context1 As HttpContext
+    Sub ThreadProcess()
+        For i As Integer = 0 To numhits Step +1
+            mutex.WaitOne()
+            context1.Response.Write(Thread.CurrentThread.Name + " enter")
+            Thread.Sleep(500)
+            context1.Response.Write(Thread.CurrentThread.Name + " leave")
+            mutex.ReleaseMutex()
+        Next i
+    End Sub
+    Sub ProcessRequest(ByVal context As HttpContext) Implements IHttpHandler.ProcessRequest
+        Dim strJson As String = ""
+        strJson = context.Request.Form("json").ToString
+        context.Response.ContentType = "text/plain"
+        Dim mutexName As String = "SmartReceipt"
+        Dim mutex As New System.Threading.Mutex(False, mutexName)
+        Dim hasHandle As Boolean = False
+        Dim result As Integer
+
+        Try
+            Dim retry As Integer
+            retry = 0
+            Try
+                hasHandle = mutex.WaitOne(0, False)
+                Thread.Sleep(5000)
+            Catch ex As System.Threading.AbandonedMutexException
+                hasHandle = True
+            End Try
+            If hasHandle = False Then
+                context.Response.Write("fail" + Environment.NewLine)
+                context.Response.Write(strJson)
+                retry = retry + 1
+                Return
+            End If
+            result = 0
+            context.Response.Write("success" + Environment.NewLine)
+            context.Response.Write(strJson)
+        Finally
+            If hasHandle Then
+                mutex.ReleaseMutex()
+            End If
+            mutex.Close()
+
+        End Try
+
+    End Sub
+    Function getWebapi() As webapi
+        Dim test As New webapi
+        Return test
+    End Function
+    ReadOnly Property IsReusable() As Boolean Implements IHttpHandler.IsReusable
+        Get
+            Return False
+        End Get
+    End Property
+End Class
