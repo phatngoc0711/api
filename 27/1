@@ -1,0 +1,94 @@
+Imports System.Threading
+Imports System.Web
+Imports System.Web.Services
+Imports log4net
+
+Public Class webapi
+    Public Property webpos_shop_cd As String
+    Public Property webpos_pos_no As String
+    Public Property t As String
+    Public Property h As String
+End Class
+Public Class objects
+    Public Property tag_name As String
+    Public Property values As String()
+End Class
+Public Class methods
+    Public Property method_name As String
+    Public Property objects As Object()
+End Class
+Public Class datas
+    Public Property webapi As webapi
+    Public Property methods As methods()
+End Class
+Public Class Main
+    Implements System.Web.IHttpHandler
+    Private result As String = ""
+    Private Const success As String = "Success"
+    Private Const retrySuccess As String = "RetrySuccess"
+    Private Const retryFail As String = "RetryFail"
+    Private Const retry As Integer = 3
+    Private retryindex As Integer = 0
+    Sub ProcessRequest(ByVal context As HttpContext) Implements IHttpHandler.ProcessRequest
+        Dim strJson As String = ""
+        strJson = context.Request.Form("json").ToString
+        context.Response.ContentType = "text/plain"
+        Dim mutexName As String = "SmartReceipt"
+        Dim mutex As New System.Threading.Mutex(False, mutexName)
+        Dim hasHandle As Boolean = False
+        Try
+            Try
+                hasHandle = mutex.WaitOne(0, False)
+            Catch ex As System.Threading.AbandonedMutexException
+                hasHandle = True
+            End Try
+
+            If hasHandle = False Then
+                retryindex = 1
+                For i As Integer = 1 To retry - 1 Step +1
+                    Thread.Sleep(1000)
+                    Try
+                        hasHandle = mutex.WaitOne(0, False)
+                    Catch ex As System.Threading.AbandonedMutexException
+                        hasHandle = True
+                    End Try
+                    If hasHandle = True Then
+                        result = retrySuccess
+                        context.Response.Write(result + Environment.NewLine)
+                        context.Response.Write(strJson + "retry")
+                        Return
+                    End If
+                    If hasHandle = False Then
+                        If i = retry - 1 Then
+                            result = retryFail
+                            context.Response.Write(result + Environment.NewLine)
+                            context.Response.Write(strJson + "fail")
+                            Return
+                        End If
+                    End If
+                Next
+            End If
+            If retryindex = 0 Then
+                result = success
+            End If
+        Finally
+            If hasHandle Then
+                Thread.Sleep(2000)
+                mutex.ReleaseMutex()
+            End If
+            mutex.Close()
+        End Try
+        context.Response.Write(result + Environment.NewLine)
+        context.Response.Write(strJson)
+
+    End Sub
+    Function getWebapi() As webapi
+        Dim test As New webapi
+        Return test
+    End Function
+    ReadOnly Property IsReusable() As Boolean Implements IHttpHandler.IsReusable
+        Get
+            Return False
+        End Get
+    End Property
+End Class
