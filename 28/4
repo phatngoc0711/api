@@ -1,0 +1,77 @@
+{
+	"webapi":
+	{
+		"webpos_shop_cd":"9999",
+		"webpos_pos_no":"01",
+		"t":"20220321171301",
+		"h":"5e40b3d83e822112a2d42fd9df411bbe"
+	},
+
+	"methods":
+	[{
+		"method_name":"GetConfigValue",
+		"objects":
+		[{
+			"tag_name":"CompanyID"
+		}]
+	},
+     {
+         "method_name":"SetConfigValue",
+         "objects":
+         [{
+            "tag_name":"Nothing",
+            "values":[""]
+        }]
+    },
+	{
+		"method_name":"ApplyConfig",
+		"objects":""
+	},
+    {
+		"method_name":"InitReceipt",
+		"objects":""
+	},
+	{
+		"method_name":"SetReceiptData",
+		"objects":
+		[{
+			"tag_name":"header",
+			"values":[
+				"***今月は休まず営業致します***",
+				"2011 年 06 月 23 日(木)08:32 ﾚｼﾞ 0003",
+				"9900000043210000"
+			]
+		},
+		{
+			"tag_name":"footer",
+			"values":[
+				"小計 \\20,540"
+			]
+		}
+	]},
+	{
+		"method_name":"AddReceiptDataToList",
+		"objects":
+		[{
+			"tag_name":"lines",
+			"values":[
+				"itemname:手芸綿 100g",
+				"price:540",
+				"categorycode:007224",
+				"jancode:4932750752139",
+				"count:3"
+		]
+		},
+		{
+			"tag_name":"lines",
+			"values":[
+				"itemname:冬物セーター 茶色",
+				"price: 1000",
+				"categorycode:411525",
+				"jancode:1812345678900",
+				"count:2"
+			]
+		}
+		]
+	}]
+}
