@@ -1,0 +1,223 @@
+Imports System.Threading
+Imports Newtonsoft.Json
+Imports NLog
+Imports TEC.SRA
+Public Class webapi
+    Public Property webpos_shop_cd As String
+    Public Property webpos_pos_no As String
+    Public Property t As String
+    Public Property h As String
+End Class
+Public Class objects
+    Public Property tag_name As String
+    Public Property values As String()
+End Class
+Public Class methods
+    Public Property method_name As String
+    Public Property objects As objects()
+End Class
+Public Class data
+    Public Property webapi As webapi
+    Public Property methods As methods()
+End Class
+'Class Result success
+Public Class success
+    Public Property rc As String
+End Class
+'Class Result fail
+Public Class fail
+    Public Property rc As String
+    Public Property method As String
+    Public Property discription As String
+End Class
+
+Public Class Main
+    Implements System.Web.IHttpHandler
+    Private result As String
+    Private methodError As String
+    Private Const success As String = "Success"
+    Private Const retrySuccess As String = "RetrySuccess"
+    Private Const retryFail As String = "RetryFail"
+    Private retry As Integer = System.Configuration.ConfigurationManager.AppSettings("MaxTry").ToString()
+    Private retryindex As Integer = 0
+    Private Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+    Private shopCode As String
+    Private posNo As String
+
+    ''
+    Private rc As String
+    Private sessionID As String
+    Dim myProcess As New Process
+    ''
+
+
+    'Public gv_oSR As New SmtRctAccessLib.SmtRctAccess
+    Sub ProcessRequest(ByVal context As HttpContext) Implements IHttpHandler.ProcessRequest
+
+
+
+        Dim strJson As String
+        strJson = context.Request.Form("json").ToString
+        context.Response.ContentType = "text/plain"
+
+
+
+
+
+
+
+
+
+
+
+
+        Dim api As New data
+        api = JsonConvert.DeserializeObject(Of data)(strJson.ToString)
+        'context.Response.Write(api.webapi.webpos_shop_cd + Environment.NewLine)
+        'context.Response.Write(api.webapi.webpos_pos_no + Environment.NewLine)
+        'context.Response.Write(api.webapi.t + Environment.NewLine)
+        'context.Response.Write(api.webapi.h + Environment.NewLine)
+        'Logger.Error($"")
+        'Logger.Warn("")
+        'Logger.Info($"")
+        'Logger.Debug($"")
+
+        'Json Handle
+        shopCode = api.webapi.webpos_shop_cd
+        posNo = api.webapi.webpos_pos_no
+        context.Response.Write(api.methods(0).method_name + Environment.NewLine)
+        For i As Integer = 0 To api.methods.Length - 1 Step +1
+            If api.methods(i).method_name = "GetConfigValue" Then
+                'value: gv_oSR.GetConfigValue(api.methods(i).objects(0).tag_name) 
+                'context.Response.Write(gv_oSR.GetConfigValue(api.methods(i).objects(0).tag_name) + Environment.NewLine)
+                'context.Response.Write(api.methods(i).objects(0).tag_name + Environment.NewLine)
+            End If
+            If api.methods(i).method_name = "ApplyConfig" Then
+                'value boolean: gv_oSR.ApplyConfig() 
+                'context.Response.Write(gv_oSR.ApplyConfig().ToString)
+            End If
+            If api.methods(i).method_name = "InitReceipt" Then
+                'value gv_oSR.InitReceipt()         
+                'context.Response.Write(gv_oSR.InitReceipt.ToString + Environment.NewLine)
+                'context.Response.Write("InitReceipt" + Environment.NewLine)
+            End If
+            If api.methods(i).method_name = "SetReceiptData" Then
+                For j As Integer = 0 To api.methods(i).objects.Length - 1 Step +1
+                    'gv_oSR.SetReceiptData(api.methods(i).objects(j))
+                    'context.Response.Write(api.methods(i).objects(j).tag_name + Environment.NewLine)
+                    'context.Response.Write(getValueInHeaderAndFooter(api.methods(i).objects(j).values) + Environment.NewLine)
+                    'value gv_oSR.SetReceiptData(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values))
+                    'context.Response.Write(gv_oSR.SetReceiptData(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values)).ToString + Environment.NewLine)
+                Next j
+            End If
+            If api.methods(i).method_name = "AddReceiptDataToList" Then
+                'value gv_oSR.AddReceiptDataToList(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values))
+                For j As Integer = 0 To api.methods(i).objects.Length - 1 Step +1
+                    'context.Response.Write(api.methods(i).objects(j).tag_name + Environment.NewLine)
+                    'context.Response.Write(getValueInHeaderAndFooter(api.methods(i).objects(j).values) + Environment.NewLine)
+                    'context.Response.Write(gv_oSR.AddReceiptDataToList(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values)).ToString + Environment.NewLine)
+                Next j
+            End If
+        Next i
+
+
+
+
+
+
+
+
+        '
+        Dim processID As String
+        processID = Process.GetCurrentProcess().Id.ToString
+        Dim millis = System.DateTime.Now.Millisecond
+        Dim MyValue As Integer
+        Dim rnd As New Random
+        'MyValue = Int((1000 * Rnd()) + 0)
+        MyValue = rnd.Next(1000)
+        sessionID = shopCode + "_" + posNo + "_" + processID + "_" + millis.ToString.ToString + "_" + MyValue.ToString
+        context.Response.Write(sessionID + Environment.NewLine)
+        '
+
+
+
+        Dim mutexName As String = "SmartReceipt"
+        Dim mutex As New System.Threading.Mutex(False, mutexName)
+        Dim hasHandle As Boolean = False
+        Try
+            Try
+                Logger.Info($"" + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+                Logger.Info($"" + "(" + sessionID + ")" + vbTab + "MainService.ashx	start" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + ")")
+                hasHandle = mutex.WaitOne(0, False)
+
+            Catch ex As System.Threading.AbandonedMutexException
+                hasHandle = True
+            End Try
+            If hasHandle = False Then
+                retryindex = 1
+                For i As Integer = 1 To retry - 1 Step +1
+                    Logger.Info($"" + "(" + sessionID + ")" + vbTab + "MainService.ashx	wait" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + ")")
+                    Thread.Sleep(1000)
+                    Try
+                        hasHandle = mutex.WaitOne(0, False)
+                    Catch ex As System.Threading.AbandonedMutexException
+                        hasHandle = True
+                    End Try
+                    If hasHandle = True Then
+                        result = retrySuccess
+                        context.Response.Write(result + Environment.NewLine)
+                        Return
+                    End If
+                    If hasHandle = False Then
+                        If i = retry - 1 Then
+                            result = retryFail
+                            context.Response.Write(result + Environment.NewLine)
+                            Logger.Info($"" + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + ")")
+                            Logger.Info($"" + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+                            Return
+                        End If
+                    End If
+                Next
+            End If
+            If retryindex = 0 Then
+                result = success
+            End If
+        Finally
+            If hasHandle Then
+                Thread.Sleep(2000)
+                mutex.ReleaseMutex()
+                Logger.Info($"" + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + ")")
+                Logger.Info($"" + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+            End If
+            mutex.Close()
+        End Try
+        context.Response.Write(result + Environment.NewLine)
+
+
+
+
+
+
+
+
+
+    End Sub
+    Private Function getValueInHeaderAndFooter(ByVal listValue As String()) As String
+        Dim result As String
+        result = ""
+        For i As Integer = 0 To listValue.Length - 1 Step +1
+            If i = listValue.Length - 1 Then
+                result = result + listValue(i)
+                Exit For
+            Else
+                result = result + listValue(i) + "\n"
+            End If
+        Next i
+        Return result
+    End Function
+    ReadOnly Property IsReusable() As Boolean Implements IHttpHandler.IsReusable
+        Get
+            Return False
+        End Get
+    End Property
+End Class
