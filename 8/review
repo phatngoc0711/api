@@ -1,0 +1,23 @@
+Không khai báo những biến số không sử dụng
+Không thực hiện những đoạn code không có ý nghĩa.
+Trong source code không được phép tồn tại những xử lý không bao giờ được thực hiện.
+Trong source code không được phép tồn tại những xử lý không bao giờ được thực hiện.
+Các xử lý giống nhau, sử dụng lại nhiều: gom các xử lý này lại thành function để sử dụng chung.
+
+・ Xử lý 1 hàm số KHÔNG vượt quá 100 dòng.
+Sử dụng if…else thay cho từng lệnh if riêng rẽ.
+Khi sử dụng switch…case thì bắt buộc phải có xử lý default.
+Các xử lý tương tự nhau thì phải thực hiện coding giống nhau.
+Trong source code không được sử dụng hardcode mà phải khai báo thành hằng số
+Phải tiến hành xử lý cho trường hợp đối tượng là NULL.
+'Dòng đầu tiên của comment thì mặc định là mô tả khái quát, không bắt đầu bằng  「概要：」
+
+
+
+Thống nhất trong cách trình bày source code
+Dễ đọc
+Mỗi dòng code là 1 xử lý
+Dòng code không dài quá 200 ký tự
+Chỉnh indent cho source code sau khi code xong
+Tất cả indent là ký tự space không sử dụng ký tự tab.
+Chỉ áp dụng tool format của IDE cho mỗi đoạn code mà mình chỉnh sửa.
