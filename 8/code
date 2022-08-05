@@ -1,0 +1,63 @@
+Property         		
+Private mvVar_C1 As Variant
+…
+Public Property Get Str_StaffName() As String
+Str_StaffName = mvVar_C1
+End Property
+
+Constant
+Private Const mcStr_AdminStaffCode = "0000"
+Public Const gcStr_AdminStaffCode = "0000"
+
+
+Variable
+Public gvObj_Connection as Object
+Private mvObj_Connection as Object
+
+Level sub, function
+Public Function fncG_DB_Connect(ByRef oObj_Connection As Object) As Boolean
+Dim wStr_Sql As String
+…
+End Function
+
+Out Param
+Public Function fncG_DB_Connect(ByRef oObj_Connection As Object) As Boolean
+
+
+In Param
+Public Function fncG_DB_Connect(ByVal iStr_ConnectionString As String) As Boolean
+
+
+Sub
+Public Sub subG_DB_Commit()
+Private Sub subM_DB_RemoveAll()
+
+
+Function
+Public Function fncG_DB_Connect() As Boolean      public
+Private Function fncM_DB_GetConfig() As Boolean  Private
+
+Class 
+cls_DB_Connection
+API 
+JSONAPI
+
+
+
+
+String		Str
+Byte		Byt
+Integer		Int
+Long		Lng
+Single		Sng
+Double		Dbl
+Object		Obj
+Variant		Var
+User Type		Typ
+Date		Dtm
+Currency		Cur
+Boolean		Bln
+Form		Frm
+Array		Arr
+FileSystemObject	Fso
+Scripting.Dictionay	Dic   
