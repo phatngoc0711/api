@@ -1,0 +1,873 @@
+Imports System.Reflection
+Imports System.ServiceProcess
+Imports System.Threading
+Imports Newtonsoft.Json
+Imports NLog
+Imports TEC.SRA
+Public Class webapi
+
+    Public Property webpos_shop_cd As String
+    Public Property webpos_pos_no As String
+    Public Property t As String
+    Public Property h As String
+End Class
+Public Class objects
+
+    Public Property tag_name As String
+    Public Property values As String()
+End Class
+Public Class methods
+
+    Public Property method_name As String
+    Public Property objects As objects()
+End Class
+Public Class data
+
+    Public Property webapi As webapi
+    Public Property methods As methods()
+End Class
+'Class Result success
+Public Class success
+
+    Public Property rc As String
+End Class
+'Class Result fail
+Public Class fail
+
+    Public Property rc As String
+    Public Property method As String
+    Public Property discription As String
+End Class
+Public Class Main
+    Implements System.Web.IHttpHandler
+
+    Private methodError As String
+    Private methodErrorMessage As String
+    Private methodErrorCode As String
+    Private errorMessage As String
+    Private jsonResult As String
+    Private retryindex As Integer = 0
+    Private shopCode As String
+    Private posNo As String
+    Dim t As String
+    Dim h As String
+    Private rc As String
+    Private sessionID As String
+    Dim MethodListFromConfig() As String = System.Configuration.ConfigurationManager.AppSettings("MethodList").ToString().Split(";")
+    Dim MethodListGetValueFromConfig() As String = System.Configuration.ConfigurationManager.AppSettings("MethodGetValue").ToString().Split(";")
+    'Dim myProcess As New Process
+    Public gv_oSR As New SmtRctAccessLib.SmtRctAccess
+    Function getsuccess(ByVal rc As String) As success
+
+        Dim sc As New success
+        sc.rc = rc
+        Return sc
+    End Function
+    Function getfail(ByVal rc As String, ByVal method As String, ByVal discription As String) As fail
+
+        Dim fl As New fail
+        fl.rc = rc
+        fl.method = method
+        fl.discription = discription
+        Return fl
+    End Function
+    Function getJsonSuccess(ByVal sc As success) As String
+
+        Dim json As String
+        json = JsonConvert.SerializeObject(sc)
+        Return json
+    End Function
+    Function getJsonFail(ByVal fl As fail) As String
+
+        Dim json As String
+        json = JsonConvert.SerializeObject(fl)
+        Return json
+    End Function
+    Private Function GetHash(strToHash As String) As String
+
+        Dim md5Obj As New System.Security.Cryptography.MD5CryptoServiceProvider
+        Dim bytesToHash() As Byte = System.Text.Encoding.ASCII.GetBytes(strToHash)
+        bytesToHash = md5Obj.ComputeHash(bytesToHash)
+        Dim strResult As New StringBuilder
+        For Each b As Byte In bytesToHash
+            strResult.Append(b.ToString("x2"))
+        Next
+        Return strResult.ToString
+    End Function
+    Function delete0(ByVal key As String) As String
+
+        Dim result As String = ""
+        For i As Integer = 0 To key.Length - 1 Step +1
+            If key(i) <> "0" Then
+                For j As Integer = i To key.Length - 1 Step +1
+                    result = result + key(j)
+                Next j
+                Exit For
+            End If
+        Next i
+        Return result
+    End Function
+    Function checkInitHash() As Boolean
+        Dim passWord As String = System.Configuration.ConfigurationManager.AppSettings("Password").ToString()
+        Dim convert As String = ""
+        convert = passWord
+        Dim hash As String
+        hash = GetHash(convert)
+        If h.Equals(delete0(shopCode) + delete0(t) + hash) Then
+            Return True
+        End If
+        Return False
+    End Function
+    Function checkJson() As Boolean
+
+        If checkNullAndEmpty(shopCode) And checkNullAndEmpty(posNo) And checkNullAndEmpty(t) And checkNullAndEmpty(h) Then
+            Return True
+        End If
+        Return False
+    End Function
+    Function checkNullAndEmpty(ByVal key As String) As Boolean
+
+        If key Is Nothing Or key = "" Then
+            Return False
+        End If
+        Return True
+    End Function
+    Function checkService() As Boolean
+        Dim windowsServicesName As String = System.Configuration.ConfigurationManager.AppSettings("windowsServicesName").ToString()
+        For Each s As ServiceController In ServiceController.GetServices()
+            If s.ServiceName = windowsServicesName AndAlso s.Status = ServiceControllerStatus.Running Then
+                Return True
+            End If
+        Next
+        Return False
+    End Function
+    Dim millis1 = System.DateTime.Now.Millisecond
+    Dim MyValue1 As Integer
+    Dim processID1 As String
+    Dim rnd As New Random
+
+
+    Dim count As Integer = 0
+    Function checkExistMethodList(ByVal key As String, ByVal list() As String) As Boolean
+        For i As Integer = 0 To list.Length - 1 Step +1
+            If key = list(i) Then
+                Return True
+            End If
+        Next i
+        Return False
+    End Function
+    Dim testmagicValue As New Object
+    Dim exitFor As Integer = 0
+    Sub getMethodCheck(ByVal methodname As String, ByVal obj As objects())
+
+
+        Dim magicConstructor As ConstructorInfo = GetType(SmtRctAccessLib.SmtRctAccess).GetConstructor(Type.EmptyTypes)
+            Dim magicClassObject = magicConstructor.Invoke(New Object() {})
+            Dim magicMethod As MethodInfo = GetType(SmtRctAccessLib.SmtRctAccess).GetMethod(methodname)
+            'Dim magicValue As Object = magicMethod.Invoke(magicClassObject, {"CompanyID"})
+
+            Dim listtest As New List(Of Object)
+            'Dim magicValue As Object = magicMethod.Invoke(magicClassObject, listtest.ToArray)
+
+
+            Try
+                For i As Integer = 0 To obj.Length - 1 Step +1
+
+                    'Dim objType As Type = obj(i).GetType()
+                    'Dim pInfo As System.Reflection.PropertyInfo = objType.GetProperty("method_name")
+                    'Dim PropValue As Object = pInfo.GetValue(obj, Reflection.BindingFlags.GetProperty, Nothing, Nothing, Nothing)
+
+                    Dim properties = obj(i).GetType().GetProperties()
+                    For Each prop In properties
+                        'context.Response.Write(prop.Name + "      132         " + prop.PropertyType.ToString + Environment.NewLine)           
+                        'context.Response.Write(prop.Name + "      132         " + prop.GetValue(api.methods(i).objects(0), New Object() {}) + Environment.NewLine)
+                        If Not prop.GetValue(obj(i), New Object() {}) Is Nothing Then
+                            If prop.PropertyType.ToString.Trim <> "System.String[]" Then
+                                listtest.Add(prop.GetValue(obj(i), New Object() {}))
+                            Else
+                                listtest.Add(getValueInHeaderAndFooter(prop.GetValue(obj(i), New Object() {})))
+                                'listtest.Add("")
+                            End If
+                            count = count + 1
+                        End If
+
+                    Next prop
+
+                    Dim magicValue = magicMethod.Invoke(magicClassObject, listtest.ToArray)
+                    testmagicValue = magicValue
+                    listtest.Clear()
+
+
+
+
+                If magicValue Is Nothing Then
+                    methodError = methodname
+                    methodErrorMessage = "Not Found"
+                    exitFor = 1
+                    Exit For
+                End If
+
+                If magicValue.GetType.ToString.Trim.Equals("System.Boolean") Then
+                    If magicValue = False Then
+                        methodError = methodname
+                        methodErrorMessage = "Fail"
+                        exitFor = 1
+                        Exit For
+                    End If
+                End If
+
+
+                If Not checkExistMethodList(methodname, MethodListGetValueFromConfig) And Not magicValue.GetType.ToString.Trim.Equals("System.Boolean") Then
+                    If magicValue.ToString.Trim <> "0" Then
+                        methodError = methodname
+                        methodErrorCode = magicValue.ToString.Trim
+                        getSRAErrorMessage(methodErrorCode)
+                        exitFor = 1
+                    End If
+                End If
+
+
+
+                'If magicValue.GetType.ToString.Trim.Equals("System.Boolean") Then
+                '    If magicValue = False Then
+                '        methodError = methodname
+                '        methodErrorMessage = "Fail"
+                '        exitFor = 1
+                '        Exit For
+                '    End If
+                'Else
+                '    If checkExistMethodList(methodname, MethodListGetValueFromConfig) Then
+                '        If magicValue Is Nothing Then
+                '            methodError = methodname
+                '            methodErrorMessage = "Not Found"
+                '            exitFor = 1
+                '            Exit For
+                '        End If
+                '    Else
+                '        If magicValue.ToString.Trim <> "0" Then
+                '            methodError = methodname
+                '            methodErrorCode = magicValue.ToString.Trim
+                '            getSRAErrorMessage(methodErrorCode)
+                '            exitFor = 1
+                '        End If
+                '    End If
+                'End If
+
+            Next i
+
+        Catch
+                Dim magicValue As Object = magicMethod.Invoke(magicClassObject, {})
+            End Try
+
+
+
+    End Sub
+
+    Sub ProcessRequest(ByVal context As HttpContext) Implements IHttpHandler.ProcessRequest
+
+
+        'Dim MutexNameConfig As String = System.Configuration.ConfigurationManager.AppSettings("MutexName").ToString()
+        'Dim mutexName As String = MutexNameConfig
+        Dim mutex As New System.Threading.Mutex(False, "SmartReceipt")
+        Dim hasHandle As Boolean = False
+        'Dim rnd As New Random
+        'processID1 = Process.GetCurrentProcess().Id.ToString
+        'MyValue1 = rnd.Next(1000)
+        Try
+
+            Dim strJson As String
+            strJson = context.Request.Form("json").ToString
+            context.Response.ContentType = "text/plain"
+
+            Try
+                Try
+                    hasHandle = mutex.WaitOne(0, False)
+                    'Logger = NLog.LogManager.GetLogger("fileLogger")
+                    processID1 = Process.GetCurrentProcess().Id.ToString
+                    MyValue1 = rnd.Next(1000)
+                    'strJson = context.Request.Form("json").ToString
+                    ''''
+                    'Start
+                    Dim api1 As New data
+                    Dim fl As Integer = 0
+                    Try
+                        api1 = JsonConvert.DeserializeObject(Of data)(strJson.ToString)
+                    Catch
+                        fl = 1
+                    End Try
+                    '
+                    If fl = 0 Then
+                        shopCode = api1.webapi.webpos_shop_cd
+                        posNo = api1.webapi.webpos_pos_no
+                        t = api1.webapi.t
+                        h = api1.webapi.h
+                        'Get sessionID in log 
+
+                        sessionID = shopCode + "_" + posNo + "_" + processID1 + "_" + millis1.ToString.ToString + "_" + MyValue1.ToString
+                        ''''
+                        Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                        Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+                        Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	start" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + ")")
+                    Else
+                        Dim id As String = Process.GetCurrentProcess().Id.ToString + "_" + System.DateTime.Now.Millisecond.ToString.ToString + "_" + rnd.Next(1000).ToString
+                        Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                        Logger.Info($"" + vbTab + vbTab + "(" + "NULL" + "_" + "NULL" + "_" + processID1 + "_" + millis1.ToString.ToString + "_" + MyValue1.ToString + ")" + vbTab + "----------------------------------------------------")
+                        Logger.Info($"" + vbTab + vbTab + "(" + "NULL" + "_" + "NULL" + "_" + processID1 + "_" + millis1.ToString.ToString + "_" + MyValue1.ToString + ")" + vbTab + "MainService.ashx	start" + vbTab + "（shopCD:NULL" + shopCode + "、PosNo：NULL" + posNo + ")")
+                    End If
+                Catch ex As System.Threading.AbandonedMutexException
+                    hasHandle = True
+                End Try
+                ''Handel false
+                Dim handleFalse As Integer = 0
+                If hasHandle = False Then
+                    handleFalse = 1
+                    Dim retry As Integer = System.Configuration.ConfigurationManager.AppSettings("MaxTry").ToString()
+                    retryindex = 1
+                    For i As Integer = 1 To retry - 1 Step +1
+                        Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                        Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	wait" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + ")")
+                        Thread.Sleep(1000)
+                        Try
+                            hasHandle = mutex.WaitOne(0, False)
+                        Catch ex As System.Threading.AbandonedMutexException
+                            hasHandle = True
+                        End Try
+
+                        If hasHandle = False Then
+                            If i = retry - 1 Then
+                                Dim temp As String
+                                temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_RETRY_FAIL
+                                Dim temp1 As String()
+                                temp1 = temp.Split("@")
+                                rc = temp1(0)
+                                methodErrorMessage = temp1(1)
+                                jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                                context.Response.Write(jsonResult + Environment.NewLine)
+                                Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                                Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+                                Return
+                            End If
+                        End If
+                    Next i
+                End If
+
+                '' handel true
+                If hasHandle = True Then
+                    '''''''''''''''''
+                    'Check Deserialize
+                    '
+                    Dim api As New data
+                    Try
+                        api = JsonConvert.DeserializeObject(Of data)(strJson.ToString)
+                    Catch
+                        Dim temp As String
+                        temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_DESERIALIZE_FAIL
+                        Dim temp1 As String()
+                        temp1 = temp.Split("@")
+                        rc = temp1(0)
+                        methodErrorMessage = temp1(1)
+                        jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                        context.Response.Write(jsonResult + Environment.NewLine)
+                        Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                        Logger.Info($"" + vbTab + vbTab + "(" + "NULL" + "_" + "NULL" + "_" + processID1 + "_" + millis1.ToString.ToString + "_" + MyValue1.ToString + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:NULL" + shopCode + "、PosNo：NULL" + posNo + "、RC：" + rc + ")")
+                        Logger.Info($"" + vbTab + vbTab + "(" + "NULL" + "_" + "NULL" + "_" + processID1 + "_" + millis1.ToString.ToString + "_" + MyValue1.ToString + ")" + vbTab + "----------------------------------------------------")
+
+
+                        Return
+                    End Try
+                    '
+                    'Json Handle
+                    'Get Value
+                    shopCode = api.webapi.webpos_shop_cd
+                    posNo = api.webapi.webpos_pos_no
+                    t = api.webapi.t
+                    h = api.webapi.h
+                    'Get sessionID in log 
+                    Dim processID As String
+                    processID = Process.GetCurrentProcess().Id.ToString
+                    Dim millis = System.DateTime.Now.Millisecond
+                    Dim MyValue As Integer
+                    MyValue = rnd.Next(1000)
+                    'sessionID = shopCode + "_" + posNo + "_" + processID + "_" + millis.ToString.ToString + "_" + MyValue.ToString
+                    '
+                    '
+                    If Not checkService() Then
+                        Dim temp As String
+                        temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_WINDOWS_SERVICE_CHECK_FAIL
+                        Dim temp1 As String()
+                        temp1 = temp.Split("@")
+                        rc = temp1(0)
+                        methodErrorMessage = temp1(1)
+                        jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                        context.Response.Write(jsonResult + Environment.NewLine)
+                        Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                        Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                        Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+
+
+                        Return
+                    End If
+                    'Check Json Null Or Empty
+                    If Not checkJson() Then
+                        Dim temp As String
+                        temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_CHECK_JSON
+                        Dim temp1 As String()
+                        temp1 = temp.Split("@")
+                        rc = temp1(0)
+                        methodErrorMessage = temp1(1)
+                        jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                        context.Response.Write(jsonResult + Environment.NewLine)
+                        Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                        Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                        Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+
+
+                        Return
+                    End If
+                    'Check Authen by compare h with posNo + t + Hash(passWord)
+                    If Not checkInitHash() Then
+                        Dim temp As String
+                        temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_AUTHEN_FAIL
+                        Dim temp1 As String()
+                        temp1 = temp.Split("@")
+                        rc = temp1(0)
+                        methodErrorMessage = temp1(1)
+                        jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                        context.Response.Write(jsonResult + Environment.NewLine)
+                        Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                        Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                        Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+
+                        Return
+                    End If
+
+
+
+
+
+                    'Check Method
+                    For i As Integer = 0 To api.methods.Length - 1 Step +1
+                        If checkExistMethodList(api.methods(i).method_name, MethodListFromConfig) Then
+                            getMethodCheck(api.methods(i).method_name, api.methods(i).objects)
+                            If exitFor = 1 Then
+                                context.Response.Write(jsonResult)
+                                Exit For
+                            End If
+                            'context.Response.Write(ttt.GetType.ToString.Trim.Equals("System.Boolean").ToString + Environment.NewLine)
+                            context.Response.Write("------------" + Environment.NewLine)
+                            context.Response.Write(testmagicValue.ToString + Environment.NewLine)
+                            context.Response.Write(testmagicValue.GetType.ToString + Environment.NewLine)
+                            context.Response.Write("------------" + Environment.NewLine)
+                        Else
+                            exitFor = 1
+                            Dim temp As String
+                            temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_CHECK_JSON
+                            Dim temp1 As String()
+                            temp1 = temp.Split("@")
+                            rc = temp1(0)
+                            methodErrorMessage = temp1(1)
+                            jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                            Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                            Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                            Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+                        End If
+                    Next i
+
+
+
+
+
+                    'For i As Integer = 0 To api.methods.Length - 1 Step +1
+                    '    If api.methods(i).method_name = "GetConfigValue" Then
+                    '        Dim flag As Integer = 0
+                    '        'value: gv_oSR.GetConfigValue(api.methods(i).objects(0).tag_name)    
+
+                    '        getMethodCheck("GetConfigValue", api.methods(i).objects)
+                    '        context.Response.Write(Environment.NewLine + "------------" + Environment.NewLine)
+                    '        context.Response.Write(testmagicValue.ToString + Environment.NewLine)
+                    '        context.Response.Write(testmagicValue.GetType.ToString + Environment.NewLine)
+                    '        context.Response.Write(api.methods(i).objects.Length.ToString + Environment.NewLine)
+                    '        context.Response.Write("------------" + Environment.NewLine)
+
+                    '        Try
+                    '            For j As Integer = 0 To api.methods(i).objects.Length - 1 Step +1
+                    '                context.Response.Write(gv_oSR.GetConfigValue(api.methods(i).objects(j).tag_name) + Environment.NewLine)
+                    '                context.Response.Write(api.methods(i).objects(j).tag_name + Environment.NewLine)
+                    '                If gv_oSR.GetConfigValue(api.methods(i).objects(j).tag_name) Is Nothing Then
+                    '                    flag = 1
+                    '                End If
+                    '            Next j
+                    '        Catch
+                    '            Dim temp As String
+                    '            temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_CHECK_JSON
+                    '            Dim temp1 As String()
+                    '            temp1 = temp.Split("@")
+                    '            rc = temp1(0)
+                    '            methodErrorMessage = temp1(1)
+                    '            jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                    '            context.Response.Write(jsonResult + Environment.NewLine)
+                    '            Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                    '            Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                    '            Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+
+
+                    '            Return
+                    '        End Try
+                    '        If flag = 1 Then
+                    '            methodError = "GetConfigValue"
+                    '            methodErrorMessage = "Not Found Config Value"
+                    '            Exit For
+                    '        End If
+                    '    End If
+                    '    If api.methods(i).method_name = "SetConfigValue" Then
+                    '        Dim flag As Integer = 0
+
+                    '        Dim properties = api.methods(i).objects(0).GetType().GetProperties()
+                    '        For Each prop In properties
+                    '            context.Response.Write(prop.Name + "      132         " + prop.PropertyType.ToString + Environment.NewLine)
+
+                    '            '  context.Response.Write(prop.Name + "      132         " + prop.GetValue(api.methods(i).objects(0), New Object() {}) + Environment.NewLine)
+                    '        Next
+
+                    '        getMethodCheck("SetConfigValue", api.methods(i).objects)
+                    '        context.Response.Write(Environment.NewLine + "------------" + Environment.NewLine)
+                    '        context.Response.Write(testmagicValue.ToString + Environment.NewLine)
+                    '        context.Response.Write(testmagicValue.GetType.ToString + Environment.NewLine)
+                    '        context.Response.Write(api.methods(i).objects.Length.ToString + Environment.NewLine)
+                    '        context.Response.Write("------------" + Environment.NewLine)
+
+                    '        Try
+                    '            For j As Integer = 0 To api.methods(i).objects.Length - 1 Step +1
+                    '                context.Response.Write(gv_oSR.SetConfigValue(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values)).ToString + Environment.NewLine)
+                    '                If gv_oSR.SetConfigValue(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values)) = False Then
+                    '                    flag = 1
+                    '                End If
+                    '            Next j
+                    '        Catch
+                    '            Dim temp As String
+                    '            temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_CHECK_JSON
+                    '            Dim temp1 As String()
+                    '            temp1 = temp.Split("@")
+                    '            rc = temp1(0)
+                    '            methodErrorMessage = temp1(1)
+                    '            jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                    '            context.Response.Write(jsonResult + Environment.NewLine)
+                    '            Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                    '            Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                    '            Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+
+
+                    '            Return
+                    '        End Try
+                    '        If flag = 1 Then
+                    '            methodError = "SetConfigValue"
+                    '            methodErrorMessage = "Fail To Set Config Value"
+                    '            Exit For
+                    '        End If
+                    '    End If
+                    '    If api.methods(i).method_name = "ApplyConfig" Then
+
+
+
+                    '        getMethodCheck("ApplyConfig", api.methods(i).objects)
+                    '        context.Response.Write(Environment.NewLine + "------------" + Environment.NewLine)
+                    '        context.Response.Write(testmagicValue.ToString + Environment.NewLine)
+                    '        context.Response.Write(testmagicValue.GetType.ToString + Environment.NewLine)
+                    '        context.Response.Write("------------" + Environment.NewLine)
+
+
+
+
+                    '        'value boolean: gv_oSR.ApplyConfig() 
+                    '        context.Response.Write(gv_oSR.ApplyConfig().ToString + Environment.NewLine)
+                    '        If gv_oSR.ApplyConfig() = False Then
+                    '            methodError = "ApplyConfig"
+                    '            methodErrorMessage = "Fail To Apply Config"
+                    '            Exit For
+                    '        End If
+                    '    End If
+                    '    If api.methods(i).method_name = "InitReceipt" Then
+                    '        'value gv_oSR.InitReceipt()       
+
+                    '        getMethodCheck("InitReceipt", api.methods(i).objects)
+                    '        context.Response.Write(Environment.NewLine + "------------" + Environment.NewLine)
+                    '        context.Response.Write(testmagicValue.ToString + Environment.NewLine)
+                    '        context.Response.Write("123" + Environment.NewLine)
+                    '        context.Response.Write("------------" + Environment.NewLine)
+
+
+                    '        context.Response.Write(gv_oSR.InitReceipt.ToString + Environment.NewLine)
+                    '        context.Response.Write("InitReceipt" + Environment.NewLine)
+                    '        If gv_oSR.InitReceipt() <> 0 Then
+                    '            methodError = "InitReceipt"
+                    '            methodErrorCode = gv_oSR.InitReceipt()
+                    '            Exit For
+                    '        End If
+                    '    End If
+
+                    '    If api.methods(i).method_name = "SetReceiptData" Then
+
+                    '        getMethodCheck("SetReceiptData", api.methods(i).objects)
+                    '        context.Response.Write(Environment.NewLine + "------------" + Environment.NewLine)
+                    '        context.Response.Write(testmagicValue.ToString + Environment.NewLine)
+                    '        context.Response.Write("123" + Environment.NewLine)
+                    '        context.Response.Write(count.ToString + Environment.NewLine)
+                    '        context.Response.Write("------------" + Environment.NewLine)
+
+
+
+                    '        Dim flag As Integer = 0
+                    '        Try
+                    '            For j As Integer = 0 To api.methods(i).objects.Length - 1 Step +1
+                    '                'gv_oSR.SetReceiptData(api.methods(i).objects(j))
+                    '                context.Response.Write(api.methods(i).objects(j).tag_name + Environment.NewLine)
+                    '                context.Response.Write(getValueInHeaderAndFooter(api.methods(i).objects(j).values) + Environment.NewLine)
+                    '                'value gv_oSR.SetReceiptData(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values))
+                    '                context.Response.Write(gv_oSR.SetReceiptData(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values)).ToString + Environment.NewLine)
+                    '                If gv_oSR.SetReceiptData(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values)) <> 0 Then
+                    '                    flag = 1
+                    '                    methodErrorCode = gv_oSR.SetReceiptData(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values))
+                    '                End If
+                    '            Next j
+                    '        Catch
+                    '            Dim temp As String
+                    '            temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_CHECK_JSON
+                    '            Dim temp1 As String()
+                    '            temp1 = temp.Split("@")
+                    '            rc = temp1(0)
+                    '            methodErrorMessage = temp1(1)
+                    '            jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                    '            context.Response.Write(jsonResult + Environment.NewLine)
+                    '            Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                    '            Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                    '            Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+
+
+                    '            Return
+                    '        End Try
+
+                    '        If flag = 1 Then
+                    '            methodError = "SetReceiptData"
+                    '            Exit For
+                    '        End If
+                    '    End If
+                    '    If api.methods(i).method_name = "AddReceiptDataToList" Then
+                    '        'value gv_oSR.AddReceiptDataToList(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values))
+
+
+                    '        getMethodCheck("AddReceiptDataToList", api.methods(i).objects)
+                    '        context.Response.Write(Environment.NewLine + "------------" + Environment.NewLine)
+                    '        context.Response.Write(testmagicValue.ToString + Environment.NewLine)
+                    '        context.Response.Write("123" + Environment.NewLine)
+                    '        context.Response.Write(count.ToString + Environment.NewLine)
+                    '        context.Response.Write("------------" + Environment.NewLine)
+
+
+
+
+                    '        Dim flag As Integer = 0
+                    '        Try
+                    '            For j As Integer = 0 To api.methods(i).objects.Length - 1 Step +1
+                    '                context.Response.Write(api.methods(i).objects(j).tag_name + Environment.NewLine)
+                    '                context.Response.Write(getValueInHeaderAndFooter(api.methods(i).objects(j).values) + Environment.NewLine)
+                    '                context.Response.Write(gv_oSR.AddReceiptDataToList(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values)).ToString + Environment.NewLine)
+                    '                If gv_oSR.AddReceiptDataToList(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values)) <> 0 Then
+                    '                    flag = 1
+                    '                    methodErrorCode = gv_oSR.AddReceiptDataToList(api.methods(i).objects(j).tag_name, getValueInHeaderAndFooter(api.methods(i).objects(j).values))
+                    '                End If
+                    '            Next j
+                    '        Catch
+                    '            Dim temp As String
+                    '            temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_CHECK_JSON
+                    '            Dim temp1 As String()
+                    '            temp1 = temp.Split("@")
+                    '            rc = temp1(0)
+                    '            methodErrorMessage = temp1(1)
+                    '            jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                    '            context.Response.Write(jsonResult + Environment.NewLine)
+                    '            Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                    '            Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                    '            Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+
+
+                    '            Return
+                    '        End Try
+                    '        If flag = 1 Then
+                    '            methodError = "AddReceiptDataToList"
+                    '            Exit For
+                    '        End If
+                    '    End If
+                    'Next i
+
+
+
+
+
+                    'SendRequest
+                    'Dim index As Integer = 0
+                    'If gv_oSR.SendReceiptRequest() <> 0 Then
+                    '    index = 1
+                    '    methodError = "SendReceiptRequest"
+                    '    methodErrorCode = gv_oSR.SendReceiptRequest()
+                    'End If
+                End If
+
+
+                'If hasHandle = False Then
+                '    Dim retry As Integer = System.Configuration.ConfigurationManager.AppSettings("MaxTry").ToString()
+                '    retryindex = 1
+                '    For i As Integer = 1 To retry - 1 Step +1
+                '        Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	wait" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + ")")
+                '        Thread.Sleep(1000)
+                '        Try
+                '            hasHandle = mutex.WaitOne(0, False)
+                '        Catch ex As System.Threading.AbandonedMutexException
+                '            hasHandle = True
+                '        End Try
+                '        If hasHandle = True Then
+                '            If methodError Is Nothing Then
+                '                rc = "1"
+                '                context.Response.Write(getJsonSuccess(getsuccess(rc)) + Environment.NewLine)
+                '            Else
+                '                If Not methodErrorCode Is Nothing Then
+                '                    getSRAErrorMessage(methodErrorCode)
+                '                End If
+                '                rc = "-2"
+                '                jsonResult = getJsonFail(getfail(rc, methodError, methodErrorMessage))
+                '            End If
+                '            context.Response.Write(jsonResult + Environment.NewLine)
+                '            'Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                '            'Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+                '            Return
+                '        End If
+                '        If hasHandle = False Then
+                '            If i = retry - 1 Then
+                '                Dim temp As String
+                '                temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_RETRY_FAIL
+                '                Dim temp1 As String()
+                '                temp1 = temp.Split("@")
+                '                rc = temp1(0)
+                '                methodErrorMessage = temp1(1)
+                '                jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage))
+                '                context.Response.Write(jsonResult + Environment.NewLine)
+                '                Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                '                Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+                '                Return
+                '            End If
+                '        End If
+                '    Next i
+                'End If
+                If retryindex = 0 Then
+                    If methodError Is Nothing Then
+                        rc = "0"
+                        jsonResult = getJsonSuccess(getsuccess(rc))
+                    Else
+                        If Not methodErrorCode Is Nothing Then
+                            getSRAErrorMessage(methodErrorCode)
+                        End If
+                        rc = "-1"
+                        jsonResult = getJsonFail(getfail(rc, methodError, methodErrorMessage))
+                    End If
+                    context.Response.Write(jsonResult + Environment.NewLine)
+                End If
+                If retryindex = 1 Then
+                    If methodError Is Nothing Then
+                        rc = "1"
+                        context.Response.Write(getJsonSuccess(getsuccess(rc)) + Environment.NewLine)
+                    Else
+                        If Not methodErrorCode Is Nothing Then
+                            getSRAErrorMessage(methodErrorCode)
+                        End If
+                        rc = "-2"
+                        jsonResult = getJsonFail(getfail(rc, methodError, methodErrorMessage))
+                    End If
+                    context.Response.Write(jsonResult + Environment.NewLine)
+                    'Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                    'Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+                    Return
+                End If
+
+            Finally
+                If hasHandle Then
+                    'Thread.Sleep(10000)
+                    Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("fileLogger")
+                    Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + shopCode + "、PosNo：" + posNo + "、RC：" + rc + ")")
+                    Logger.Info($"" + vbTab + vbTab + "(" + sessionID + ")" + vbTab + "----------------------------------------------------")
+                    mutex.ReleaseMutex()
+                End If
+                mutex.Close()
+            End Try
+        Catch ex As Exception
+            Dim temp As String
+            temp = Global.SmartReceipt.Resources.ErrorMessage.ERR_INIT_GENERAL_ERROR
+            Dim temp1 As String()
+            temp1 = temp.Split("@")
+            rc = temp1(0)
+            methodErrorMessage = temp1(1)
+            jsonResult = getJsonFail(getfail(rc, "", methodErrorMessage + " " + ex.Message))
+            context.Response.Write(jsonResult + Environment.NewLine)
+            Return
+        End Try
+    End Sub
+    Function get01(ByVal key As String) As Boolean
+        If key = "0" Or key = "-1" Then
+            Return True
+        End If
+        Return False
+    End Function
+    Sub getSRAErrorMessage(ByVal key As String)
+
+        Dim result As String
+        result = ""
+        If key = 1000 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._1000
+        ElseIf key = 101 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._101
+        ElseIf key = 102 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._102
+        ElseIf key = 103 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._103
+        ElseIf key = 104 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._104
+        ElseIf key = 200 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._200
+        ElseIf key = 201 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._201
+        ElseIf key = 202 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._202
+        ElseIf key = 203 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._203
+        ElseIf key = 204 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._204
+        ElseIf key = 205 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._205
+        ElseIf key = 999 Then
+            result = Global.SmartReceipt.Resources.SRA_ErrorMessage._999
+        End If
+        methodErrorMessage = key + " " + result
+    End Sub
+    Private Function getValueInHeaderAndFooter(ByVal listValue As String()) As String
+
+        Dim result As String
+        result = ""
+        If listValue.Length > 1 Then
+            For i As Integer = 0 To listValue.Length - 1 Step +1
+                If i = listValue.Length - 1 Then
+                    result = result + listValue(i)
+                    Exit For
+                Else
+                    result = result + listValue(i) + "\n" + vbCr
+                End If
+            Next i
+        Else
+            result = listValue(0)
+        End If
+        Return result
+    End Function
+    ReadOnly Property IsReusable() As Boolean Implements IHttpHandler.IsReusable
+
+        Get
+            Return False
+        End Get
+    End Property
+End Class
