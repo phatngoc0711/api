@@ -1,0 +1,588 @@
+Imports System.Reflection
+Imports System.ServiceProcess
+Imports System.Threading
+Imports Newtonsoft.Json
+Imports NLog
+Imports TEC.SRA
+'class to DeserializeObject
+Public Class webapi
+
+    Public Property webpos_shop_cd As String
+    Public Property webpos_pos_no As String
+    Public Property t As String
+    Public Property h As String
+End Class
+Public Class objects
+
+    Public Property tag_name As String
+    Public Property values As String()
+End Class
+Public Class methods
+
+    Public Property method_name As String
+    Public Property objects As objects()
+End Class
+Public Class data
+
+    Public Property webapi As webapi
+    Public Property methods As methods()
+End Class
+'Class Result success
+Public Class success
+
+    Public Property rc As String
+End Class
+'Class Result fail
+Public Class fail
+
+    Public Property rc As String
+    Public Property method As String
+    Public Property discription As String
+End Class
+Public Class Main
+    Implements System.Web.IHttpHandler
+
+    Private mvStr_MethodError As String
+    Private mvStr_MethodErrorMessage As String
+    Private mvStr_MethodErrorCode As String
+    Private mvStr_JsonResult As String
+    Private mvInt_Retryindex As Integer = 0
+    Private mvStr_ShopCode As String
+    Private mvStr_PosNo As String
+    Dim mvStr_T As String
+    Dim mvStr_H As String
+    Private mvStr_Rc As String
+    Private mvStr_SessionID As String
+    Dim mvStr_MethodListFromConfig() As String = System.Configuration.ConfigurationManager.AppSettings("MethodList").ToString().Split(";")
+    Dim mvDtm_Millis = System.DateTime.Now.Millisecond
+    Dim mvInt_ValueRandom As Integer
+    Dim mvStr_ProcessID As String
+    Dim mvRdm_RandomSession As New Random
+    Dim mvObj_ResultJson As New Object
+    Dim mvInt_ExitFor As Integer = 0
+    Dim LoggerMethod As NLog.Logger = NLog.LogManager.GetLogger("filemethod")
+    Private mvStr_EndMethod As String
+    Private mvStr_EndMethodFlag As Integer = 0
+    Private mvDic_Dictionary As New Dictionary(Of String, Integer)
+    Private mvBln_FlagHandle As Boolean = True
+    Private mvStr_ParamInPut As String
+    'get class result success
+    Private Function fncM_API_GetSuccess(ByVal iStr_Rc As String) As success
+
+        Dim successValue As New success
+        successValue.rc = iStr_Rc
+        Return successValue
+    End Function
+    'get class result fail
+    Private Function fncM_API_GetFail(ByVal iStr_Rc As String, ByVal iStr_Method As String, ByVal iStr_Discription As String) As fail
+
+        Dim failValue As New fail
+        failValue.rc = iStr_Rc
+        failValue.method = iStr_Method
+        failValue.discription = iStr_Discription
+        Return failValue
+    End Function
+    'From class result success to SerializeObject(class success)
+    Private Function fncM_API_getJsonSuccess(ByVal iCls_Sc As success) As String
+
+        Dim wStr_JsonSuccess As String
+        wStr_JsonSuccess = JsonConvert.SerializeObject(iCls_Sc)
+        Return wStr_JsonSuccess
+    End Function
+    'From class result fail to SerializeObject(class fail)
+    Private Function fncM_API_GetJsonFail(ByVal iCls_Fail As fail) As String
+
+        Dim wStr_JsonFail As String
+        wStr_JsonFail = JsonConvert.SerializeObject(iCls_Fail)
+        Return wStr_JsonFail
+    End Function
+    'get hash from 1 string
+    Private Function fncm_API_GetHash(ByVal iStr_StrToHash As String) As String
+
+        Dim md5Obj As New System.Security.Cryptography.MD5CryptoServiceProvider
+        Dim wByt_BytesToHash() As Byte = System.Text.Encoding.ASCII.GetBytes(iStr_StrToHash)
+        wByt_BytesToHash = md5Obj.ComputeHash(wByt_BytesToHash)
+        Dim wStr_Result As New StringBuilder
+        For Each b As Byte In wByt_BytesToHash
+            wStr_Result.Append(b.ToString("x2"))
+        Next
+        Return wStr_Result.ToString
+    End Function
+    'delete char 0 
+    Private Function fncM_API_DeleteChar0(ByVal iStr_Key As String) As String
+
+        Dim wStrResult As String
+        wStrResult = ""
+        For wByt_Counter1 As Integer = 0 To iStr_Key.Length - 1 Step +1
+            If iStr_Key(wByt_Counter1) <> "0" Then
+                For wByt_Counter2 As Integer = wByt_Counter1 To iStr_Key.Length - 1 Step +1
+                    wStrResult = wStrResult + iStr_Key(wByt_Counter2)
+                Next wByt_Counter2
+                Exit For
+            End If
+        Next wByt_Counter1
+        Return wStrResult
+    End Function
+    'check hash from json 
+    Private Function fnc_API_CheckInitHash() As Boolean
+
+        Dim wStr_PassWord As String = System.Configuration.ConfigurationManager.AppSettings("Password").ToString()
+        Dim wStr_Convert As String
+        wStr_Convert = ""
+        wStr_Convert = wStr_PassWord
+        Dim wStr_Hash As String
+        wStr_Hash = fncm_API_GetHash(mvStr_ShopCode + mvStr_T + wStr_Convert)
+        If mvStr_H.Equals(wStr_Hash) Then
+            Return True
+        End If
+        Return False
+    End Function
+    'Check shopcode, posno, t, h not null or ""
+    Private Function fncM_API_CheckJson() As Boolean
+
+        If fncM_API_CheckNullAndEmpty(mvStr_ShopCode) And fncM_API_CheckNullAndEmpty(mvStr_PosNo) And fncM_API_CheckNullAndEmpty(mvStr_T) And fncM_API_CheckNullAndEmpty(mvStr_H) Then
+            Return True
+        End If
+        Return False
+    End Function
+    'check 1 String null or ""
+    Private Function fncM_API_CheckNullAndEmpty(ByVal iStr_Key As String) As Boolean
+
+        If iStr_Key Is Nothing Or iStr_Key.Equals("") Then
+            Return False
+        End If
+        Return True
+    End Function
+    'check service start or not 
+    Private Function fncM_API_CheckService() As Boolean
+
+        Dim wStr_WindowsServicesName As String = System.Configuration.ConfigurationManager.AppSettings("windowsServicesName").ToString()
+        For Each s As ServiceController In ServiceController.GetServices()
+            If s.ServiceName = wStr_WindowsServicesName AndAlso s.Status = ServiceControllerStatus.Running Then
+                Return True
+            End If
+        Next
+        Return False
+    End Function
+    'check method exit in list MethodConfig or not
+    Private Sub subm_API_SetDicValue()
+
+        For i As Integer = 0 To mvStr_MethodListFromConfig.Length - 1 Step +1
+            mvDic_Dictionary.Add(mvStr_MethodListFromConfig(i), 0)
+        Next i
+    End Sub
+    Private Function fncM_API_SetFormatListValueInLog(ByVal iStr_ListValue As String()) As String
+
+        Dim wStr_Result As String
+        wStr_Result = Join(iStr_ListValue, ",")
+        Return wStr_Result
+    End Function
+    Private Function fncM_API_CheckExist(ByVal iStr_Key As String) As Boolean
+
+        If mvDic_Dictionary.ContainsKey(iStr_Key) Then
+            Return True
+        End If
+        Return False
+    End Function
+    'Check method by method name and Object()
+    Private Sub fncM_API_GetMethodCheck(ByVal iStr_MethodName As String, ByVal iCls_Obj As objects())
+
+        Dim wCti_MagicConstructor As ConstructorInfo = GetType(SmtRctAccessLib.SmtRctAccess).GetConstructor(Type.EmptyTypes)
+        Dim wObj_MagicClassObject = wCti_MagicConstructor.Invoke(New Object() {})
+        Dim wMdi_MagicMethod As MethodInfo = GetType(SmtRctAccessLib.SmtRctAccess).GetMethod(iStr_MethodName)
+        Dim wLst_ListParam As New List(Of Object)
+        Dim wObj_MagicValue As Object
+        Dim wObj_MagicValue1 As Object
+        'Check Object Nothing
+        If iCls_Obj Is Nothing Then
+            Try
+                wObj_MagicValue1 = wMdi_MagicMethod.Invoke(wObj_MagicClassObject, {})
+                mvObj_ResultJson = wObj_MagicValue1
+            Catch ex As Exception
+                Dim wStr_TempMessage As String
+                wStr_TempMessage = Global.SmartReceipt.Resources.ErrorMessage.ERR_CHECK_METHOD_INVOKE
+                subM_API_CheckError(wStr_TempMessage + " - " + ex.Message)
+                mvBln_FlagHandle = False
+                mvInt_ExitFor = 1
+                LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + iStr_MethodName + vbTab + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、RC：" + mvStr_Rc + "、Value：Nothing" + "、Param：" + ")")
+                Return
+            End Try
+            If wObj_MagicValue1.GetType Is GetType(Integer) Or wObj_MagicValue1.GetType Is GetType(Long) Then
+                If wObj_MagicValue1 <> 0 Then
+                    mvStr_MethodError = iStr_MethodName
+                    mvStr_MethodErrorCode = wObj_MagicValue1.ToString.Trim
+                    subM_API_getSRAErrorMessage(mvStr_MethodErrorCode)
+                    mvInt_ExitFor = 1
+                End If
+            End If
+            LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + iStr_MethodName + vbTab + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、Value：" + mvObj_ResultJson.ToString + "、Param:" + mvStr_ParamInPut + ")")
+
+            'Object Not null
+        Else
+            For wInt_Counter1 As Integer = 0 To iCls_Obj.Length - 1 Step +1
+                Dim wPro_Properties = iCls_Obj(wInt_Counter1).GetType().GetProperties()
+                For Each prop In wPro_Properties
+                    If Not prop.GetValue(iCls_Obj(wInt_Counter1), New Object() {}) Is Nothing Then
+                        If Not prop.PropertyType.ToString.Trim.Equals("System.String[]") Then
+                            mvStr_ParamInPut = "'" + prop.GetValue(iCls_Obj(wInt_Counter1), New Object() {}).ToString + "'"
+                            wLst_ListParam.Add(prop.GetValue(iCls_Obj(wInt_Counter1), New Object() {}))
+                        Else
+                            mvStr_ParamInPut = mvStr_ParamInPut + " , " + "'" + fncM_API_SetFormatListValueInLog(prop.GetValue(iCls_Obj(wInt_Counter1), New Object() {})) + "'"
+                            wLst_ListParam.Add(fncM_API_SetFormatListValue(prop.GetValue(iCls_Obj(wInt_Counter1), New Object() {})))
+                        End If
+                    End If
+                Next prop
+                wObj_MagicValue = Nothing
+                'Check Name Method Exist And Amout of parm
+                Try
+                    wObj_MagicValue = wMdi_MagicMethod.Invoke(wObj_MagicClassObject, wLst_ListParam.ToArray)
+                Catch ex As Exception
+                    Dim wStr_TempMessage As String
+                    wStr_TempMessage = Global.SmartReceipt.Resources.ErrorMessage.ERR_CHECK_METHOD_INVOKE
+                    subM_API_CheckError(wStr_TempMessage + " - " + ex.Message)
+                    mvBln_FlagHandle = False
+                    mvInt_ExitFor = 1
+                    LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + "Nothing" + vbTab + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、RC：" + mvStr_Rc + "、Value：Nothing" + "、Param:" + mvStr_ParamInPut + ")")
+                    Return
+                End Try
+
+                mvObj_ResultJson = wObj_MagicValue
+                wLst_ListParam.Clear()
+
+                'check output object null or not
+                If wObj_MagicValue Is Nothing Then
+                    mvStr_MethodError = iStr_MethodName
+                    mvStr_MethodErrorMessage = "Not Found"
+                    mvInt_ExitFor = 1
+                    Exit For
+                End If
+                'check output object type is boolean or not
+                If wObj_MagicValue.GetType.ToString.Trim.Equals("System.Boolean") Then
+                    If wObj_MagicValue = False Then
+                        mvStr_MethodError = iStr_MethodName
+                        mvStr_MethodErrorMessage = "Fail"
+                        mvInt_ExitFor = 1
+                        Exit For
+                    End If
+                End If
+                'get method code when object type is Integer or long
+                If wObj_MagicValue.GetType Is GetType(Integer) Or wObj_MagicValue.GetType Is GetType(Long) Then
+                    If wObj_MagicValue <> 0 Then
+                        mvStr_MethodError = iStr_MethodName
+                        mvStr_MethodErrorCode = wObj_MagicValue.ToString.Trim
+                        subM_API_getSRAErrorMessage(mvStr_MethodErrorCode)
+                        mvInt_ExitFor = 1
+                        Exit For
+                    End If
+                End If
+                If mvStr_EndMethodFlag = 1 Then
+                    If wInt_Counter1 < iCls_Obj.Length - 1 Then
+                        LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + iStr_MethodName + vbTab + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、Value：" + mvObj_ResultJson.ToString + "、Param:" + mvStr_ParamInPut + ")")
+                    End If
+                Else
+                    LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + iStr_MethodName + vbTab + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、Value：" + mvObj_ResultJson.ToString + "、Param:" + mvStr_ParamInPut + ")")
+                End If
+            Next wInt_Counter1
+        End If
+    End Sub
+    'Check Deserialize Json Input
+
+    Private Sub subM_API_CheckDeserialize()
+
+        Dim wStr_TempMessage As String
+        wStr_TempMessage = Global.SmartReceipt.Resources.ErrorMessage.ERR_DESERIALIZE_FAIL
+        Dim wStr_TempSplit As String()
+        wStr_TempSplit = wStr_TempMessage.Split("@")
+        mvStr_Rc = wStr_TempSplit(0)
+        mvStr_MethodErrorMessage = wStr_TempSplit(1)
+        mvStr_JsonResult = fncM_API_GetJsonFail(fncM_API_GetFail(mvStr_Rc, "", mvStr_MethodErrorMessage))
+        Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("file")
+        Logger.Info($"" + vbTab + vbTab + "(" + "NULL" + "_" + "NULL" + "_" + mvStr_ProcessID + "_" + mvDtm_Millis.ToString.ToString + "_" + mvInt_ValueRandom.ToString + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:NULL" + mvStr_ShopCode + "、PosNo：NULL" + mvStr_PosNo + "、RC：" + mvStr_Rc + ")")
+        Logger.Info($"" + vbTab + vbTab + "(" + "NULL" + "_" + "NULL" + "_" + mvStr_ProcessID + "_" + mvDtm_Millis.ToString.ToString + "_" + mvInt_ValueRandom.ToString + ")" + vbTab + "----------------------------------------------------")
+    End Sub
+    Private Sub subM_API_CheckError(ByVal iStr_ErrorInput As String)
+
+        Dim wStr_TempSplit As String()
+        wStr_TempSplit = iStr_ErrorInput.Split("@")
+        mvStr_Rc = wStr_TempSplit(0)
+        mvStr_MethodErrorMessage = wStr_TempSplit(1)
+        mvStr_JsonResult = fncM_API_GetJsonFail(fncM_API_GetFail(mvStr_Rc, "", mvStr_MethodErrorMessage))
+        Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("file")
+        Logger.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、RC：" + mvStr_Rc + ")")
+        Logger.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + "----------------------------------------------------")
+    End Sub
+    'Check init error 
+    Private Sub subM_API_CheckInitError()
+
+        Dim wStr_TempMessage As String
+        wStr_TempMessage = Global.SmartReceipt.Resources.ErrorMessage.ERR_INIT_GENERAL_ERROR
+        Dim wStr_TempSplit As String()
+        wStr_TempSplit = wStr_TempMessage.Split("@")
+        mvStr_Rc = wStr_TempSplit(0)
+        mvStr_MethodErrorMessage = wStr_TempSplit(1)
+    End Sub
+    'Get value from Data class
+    Private Sub subM_API_GetApiValueAndSessionID(ByVal iCls_Data As data)
+
+        mvStr_ShopCode = iCls_Data.webapi.webpos_shop_cd
+        mvStr_PosNo = iCls_Data.webapi.webpos_pos_no
+        mvStr_T = iCls_Data.webapi.t
+        mvStr_H = iCls_Data.webapi.h
+        ''''
+    End Sub
+    Private Sub fncM_LogStart(ByVal iInt_Flag As Integer, ByVal iBln_Handle As Boolean, ByVal iCls_Data As data)
+
+        If iInt_Flag = 0 Then
+            subM_API_GetApiValueAndSessionID(iCls_Data)
+            mvStr_SessionID = mvStr_ShopCode + "_" + mvStr_PosNo + "_" + mvStr_ProcessID + "_" + mvDtm_Millis.ToString.ToString + "_" + mvInt_ValueRandom.ToString
+            If iBln_Handle = False Then
+                Thread.Sleep(200)
+            End If
+            Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("file")
+            Logger.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + "----------------------------------------------------")
+            Logger.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + "MainService.ashx	start" + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + ")")
+        Else
+            Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("file")
+            Logger.Info($"" + vbTab + vbTab + "(" + "NULL" + "_" + "NULL" + "_" + mvStr_ProcessID + "_" + mvDtm_Millis.ToString.ToString + "_" + mvInt_ValueRandom.ToString + ")" + vbTab + "----------------------------------------------------")
+            Logger.Info($"" + vbTab + vbTab + "(" + "NULL" + "_" + "NULL" + "_" + mvStr_ProcessID + "_" + mvDtm_Millis.ToString.ToString + "_" + mvInt_ValueRandom.ToString + ")" + vbTab + "MainService.ashx	start" + vbTab + "（shopCD:NULL" + mvStr_ShopCode + "、PosNo：NULL" + mvStr_PosNo + ")")
+        End If
+    End Sub
+    Sub ProcessRequest(ByVal context As HttpContext) Implements IHttpHandler.ProcessRequest
+
+        Dim wStrMutexNameConfig As String = System.Configuration.ConfigurationManager.AppSettings("MutexName").ToString()
+        Dim wStr_MutexName As String = wStrMutexNameConfig
+        Dim mutex As New System.Threading.Mutex(False, wStr_MutexName)
+        Dim wBln_HasHandle As Boolean = False
+        Try
+            Dim wStr_StrJson As String
+            wStr_StrJson = context.Request.Form("json").ToString
+            context.Response.ContentType = "text/plain"
+            Try
+                Try
+                    wBln_HasHandle = mutex.WaitOne(0, False)
+                    mvStr_ProcessID = Process.GetCurrentProcess().Id.ToString
+                    mvInt_ValueRandom = mvRdm_RandomSession.Next(1000)
+                    'Start
+                    Dim wCls_ApiStart As New data
+                    Dim wInt_FlagCheckConvertJson As Integer = 0
+                    Try
+                        wCls_ApiStart = JsonConvert.DeserializeObject(Of data)(wStr_StrJson.ToString)
+                    Catch
+                        wInt_FlagCheckConvertJson = 1
+                        fncM_LogStart(wInt_FlagCheckConvertJson, wBln_HasHandle, wCls_ApiStart)
+                        subM_API_CheckDeserialize()
+                        context.Response.Write(mvStr_JsonResult + Environment.NewLine)
+                        wBln_HasHandle = False
+                        Return
+                    End Try
+                    '
+                    fncM_LogStart(0, wBln_HasHandle, wCls_ApiStart)
+                Catch ex As System.Threading.AbandonedMutexException
+                    wBln_HasHandle = True
+                End Try
+                ''Handel false
+                If wBln_HasHandle = False Then
+                    Dim wInt_ConfigRetry As Integer = System.Configuration.ConfigurationManager.AppSettings("MaxTry").ToString()
+                    mvInt_Retryindex = 1
+                    For wInt_Counter1 As Integer = 1 To wInt_ConfigRetry - 1 Step +1
+                        Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("file")
+                        Logger.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + "MainService.ashx	wait" + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + ")")
+                        Thread.Sleep(2000)
+                        Try
+                            wBln_HasHandle = mutex.WaitOne(0, False)
+                        Catch ex As System.Threading.AbandonedMutexException
+                            wBln_HasHandle = True
+                        End Try
+                        If wBln_HasHandle = False Then
+                            If wInt_Counter1 = wInt_ConfigRetry - 1 Then
+                                Dim wStr_TempMessage As String
+                                wStr_TempMessage = Global.SmartReceipt.Resources.ErrorMessage.ERR_RETRY_FAIL
+                                subM_API_CheckError(wStr_TempMessage)
+                                context.Response.Write(mvStr_JsonResult + Environment.NewLine)
+                                Return
+                            End If
+                        End If
+                    Next wInt_Counter1
+                End If
+
+                '' handel true
+                If wBln_HasHandle = True Then
+                    'Deserialize
+                    Dim api As New data
+                    api = JsonConvert.DeserializeObject(Of data)(wStr_StrJson.ToString)
+                    'Get Value
+                    subM_API_GetApiValueAndSessionID(api)
+                    GlobalDiagnosticsContext.Set("ShopCode_PosNo", mvStr_ShopCode + "_" + mvStr_PosNo)
+                    'Check Service
+                    If Not fncM_API_CheckService() Then
+                        Dim wStr_TempMessage As String
+                        wStr_TempMessage = Global.SmartReceipt.Resources.ErrorMessage.ERR_WINDOWS_SERVICE_CHECK_FAIL
+                        subM_API_CheckError(wStr_TempMessage)
+                        context.Response.Write(mvStr_JsonResult + Environment.NewLine)
+                        wBln_HasHandle = False
+                        Return
+                    End If
+                    'Check Json Null Or Empty
+                    If Not fncM_API_CheckJson() Then
+                        Dim wStr_TempMessage As String
+                        wStr_TempMessage = Global.SmartReceipt.Resources.ErrorMessage.ERR_CHECK_JSON
+                        subM_API_CheckError(wStr_TempMessage)
+                        context.Response.Write(mvStr_JsonResult + Environment.NewLine)
+                        wBln_HasHandle = False
+                        Return
+                    End If
+                    'Check Authen by compare h with posNo + t + Hash(passWord)
+                    If Not fnc_API_CheckInitHash() Then
+                        Dim wStr_TempMessage As String
+                        wStr_TempMessage = Global.SmartReceipt.Resources.ErrorMessage.ERR_AUTHEN_FAIL
+                        subM_API_CheckError(wStr_TempMessage)
+                        context.Response.Write(mvStr_JsonResult + Environment.NewLine)
+                        wBln_HasHandle = False
+                        Return
+                    End If
+
+                    'Check Method
+                    subm_API_SetDicValue()
+                    LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + "----------------------------------------------------")
+                    For wInt_Counter1 As Integer = 0 To api.methods.Length - 1 Step +1
+                        mvStr_ParamInPut = ""
+                        If wInt_Counter1 = api.methods.Length - 1 Then
+                            mvStr_EndMethodFlag = 1
+                        End If
+                        If fncM_API_CheckExist(api.methods(wInt_Counter1).method_name) Then
+                            fncM_API_GetMethodCheck(api.methods(wInt_Counter1).method_name, api.methods(wInt_Counter1).objects)
+                            If mvInt_ExitFor = 1 Then
+                                If mvBln_FlagHandle = False Then
+                                    wBln_HasHandle = False
+                                    context.Response.Write(mvStr_JsonResult)
+                                    Return
+                                End If
+                                context.Response.Write(mvStr_JsonResult)
+                                mvStr_EndMethod = api.methods(wInt_Counter1).method_name
+                                Exit For
+                            End If
+                            context.Response.Write(mvObj_ResultJson.ToString + Environment.NewLine)
+                            If wInt_Counter1 < api.methods.Length - 1 Then
+                            Else
+                                mvStr_EndMethod = api.methods(wInt_Counter1).method_name
+                            End If
+                        Else
+                            mvInt_ExitFor = 1
+                            Dim wStr_TempMessage As String
+                            wStr_TempMessage = Global.SmartReceipt.Resources.ErrorMessage.ERR_CHECK_JSON
+                            subM_API_CheckError(wStr_TempMessage)
+                            context.Response.Write(mvStr_JsonResult + Environment.NewLine)
+                            mvStr_EndMethod = api.methods(wInt_Counter1).method_name
+                            If api.methods(wInt_Counter1).method_name.Equals("") Or api.methods(wInt_Counter1).method_name Is Nothing Then
+                                mvStr_EndMethod = "Nothing"
+                            End If
+                            LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + mvStr_EndMethod + vbTab + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、RC：" + mvStr_Rc + "、Value：Nothing" + "、Param:" + mvStr_ParamInPut + ")")
+                            wBln_HasHandle = False
+                            Return
+                        End If
+
+                    Next wInt_Counter1
+
+                End If
+                If mvInt_Retryindex = 0 Then
+                    If mvStr_MethodError Is Nothing Then
+                        mvStr_Rc = "0"
+                        mvStr_JsonResult = fncM_API_getJsonSuccess(fncM_API_GetSuccess(mvStr_Rc))
+                    Else
+                        If Not mvStr_MethodErrorCode Is Nothing Then
+                            subM_API_getSRAErrorMessage(mvStr_MethodErrorCode)
+                        End If
+                        mvStr_Rc = "-1"
+                        mvStr_JsonResult = fncM_API_GetJsonFail(fncM_API_GetFail(mvStr_Rc, mvStr_MethodError, mvStr_MethodErrorMessage))
+                    End If
+                    context.Response.Write(mvStr_JsonResult.ToString + Environment.NewLine)
+                    If Not mvObj_ResultJson Is Nothing Then
+                        LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + mvStr_EndMethod + vbTab + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、RC：" + mvStr_Rc + "、Value：" + mvObj_ResultJson.ToString + "、Param:" + mvStr_ParamInPut + ")")
+                    Else
+                        LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + mvStr_EndMethod + vbTab + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、RC：" + mvStr_Rc + "、Value：" + "Nothing" + "、Param:" + mvStr_ParamInPut + ")")
+                    End If
+
+                End If
+                If mvInt_Retryindex = 1 Then
+                    If mvStr_MethodError Is Nothing Then
+                        mvStr_Rc = "1"
+                        context.Response.Write(fncM_API_getJsonSuccess(fncM_API_GetSuccess(mvStr_Rc)) + Environment.NewLine)
+                    Else
+                        If Not mvStr_MethodErrorCode Is Nothing Then
+                            subM_API_getSRAErrorMessage(mvStr_MethodErrorCode)
+                        End If
+                        mvStr_Rc = "-2"
+                        mvStr_JsonResult = fncM_API_GetJsonFail(fncM_API_GetFail(mvStr_Rc, mvStr_MethodError, mvStr_MethodErrorMessage))
+                    End If
+                    context.Response.Write(mvStr_JsonResult + Environment.NewLine)
+                    If Not mvObj_ResultJson Is Nothing Then
+                        LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + mvStr_EndMethod + vbTab + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、RC：" + mvStr_Rc + "、Value：" + mvObj_ResultJson.ToString + "、Param:" + mvStr_ParamInPut + ")")
+                    Else
+                        LoggerMethod.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + mvStr_EndMethod + vbTab + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、RC：" + mvStr_Rc + "、Value：" + "Nothing" + "、Param:" + mvStr_ParamInPut + ")")
+                    End If
+                    Return
+                End If
+
+            Finally
+                If wBln_HasHandle Then
+                    'Thread.Sleep(10000)
+                    Dim Logger As NLog.Logger = NLog.LogManager.GetLogger("file")
+                    Logger.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + "MainService.ashx	end" + vbTab + "（shopCD:" + mvStr_ShopCode + "、PosNo：" + mvStr_PosNo + "、RC：" + mvStr_Rc + ")")
+                    Logger.Info($"" + vbTab + vbTab + "(" + mvStr_SessionID + ")" + vbTab + "----------------------------------------------------")
+                    mutex.ReleaseMutex()
+                End If
+                mutex.Close()
+            End Try
+        Catch ex As Exception
+            subM_API_CheckInitError()
+            mvStr_JsonResult = fncM_API_GetJsonFail(fncM_API_GetFail(mvStr_Rc, "", mvStr_MethodErrorMessage + " " + ex.Message))
+            context.Response.Write(mvStr_JsonResult + Environment.NewLine)
+            Return
+        End Try
+    End Sub
+    'Get Message from SRA_ErrorMessage
+    Private Sub subM_API_getSRAErrorMessage(ByVal iStr_Key As String)
+
+        Dim wStr_Result As String
+        wStr_Result = ""
+        If iStr_Key = 1000 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._1000
+        ElseIf iStr_Key = 101 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._101
+        ElseIf iStr_Key = 102 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._102
+        ElseIf iStr_Key = 103 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._103
+        ElseIf iStr_Key = 104 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._104
+        ElseIf iStr_Key = 200 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._200
+        ElseIf iStr_Key = 201 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._201
+        ElseIf iStr_Key = 202 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._202
+        ElseIf iStr_Key = 203 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._203
+        ElseIf iStr_Key = 204 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._204
+        ElseIf iStr_Key = 205 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._205
+        ElseIf iStr_Key = 999 Then
+            wStr_Result = Global.SmartReceipt.Resources.SRA_ErrorMessage._999
+        End If
+        mvStr_MethodErrorMessage = iStr_Key + " " + wStr_Result
+    End Sub
+    'get value Format from list
+    Private Function fncM_API_SetFormatListValue(ByVal iStr_ListValue As String()) As String
+
+        Dim wStr_Result As String
+        wStr_Result = Join(iStr_ListValue, vbCr)
+        Return wStr_Result
+    End Function
+    ReadOnly Property IsReusable() As Boolean Implements IHttpHandler.IsReusable
+
+        Get
+            Return False
+        End Get
+    End Property
+End Class
