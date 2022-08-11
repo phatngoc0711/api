@@ -1,0 +1,216 @@
+
+<script src="js/jquery.js" type="text/javascript"></script>
+<script language="JavaScript">
+<!--
+async function search_submit(){
+	var objFrm = document.frm_main;
+	var sData = objFrm.json.value;
+	const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+	for (let i = 0; i < 100; i++) {
+		fetch('http://localhost:54590/Main.ashx', {
+		  method: 'POST', // or 'PUT'
+		  headers: {
+			'Content-Type': 'application/json',
+		  },
+		  body:sData,
+		})
+		.then(response => response.text())
+		.then(data => {
+		  /*alert('Success:'+data);*/
+		})
+		.catch((error) => {
+		  alert('Error:'+ error);
+		});
+
+		await sleep(2000);	//800ｍｓ間隔
+	}
+
+	alert('done:');
+
+	// objFrm.submit();
+	return;
+}
+//-->
+</script>
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head runat="server">
+    <meta http-equiv="Content-Type" Content="application/json;charset=Shift_JIS" />
+    <title>Request_TestSite</title>
+</head>
+<body>
+    <form name="frm_main" method="post" action="http://localhost:54590/Main.ashx">
+        <table>
+            <tr>
+                <td colspan="2">
+                    <input type="submit" value="送信" />&nbsp;
+                    <input type="button" name="button_search" value="送信(負担高い)" onclick="search_submit();" />
+                </td>
+            </tr>
+            <tr>
+                <td>JSON ＜Shift_JIS＞ </td>
+                <td>
+                    <textarea name="json" cols="40" rows="55" style="width:800px">
+                        {
+                        "webapi":
+                        {
+                        "webpos_shop_cd":"9999",
+                        "webpos_pos_no":"01",
+                        "t":"20220321171301",
+                        "h":"5e40b3d83e822112a2d42fd9df411bbe"
+                        },
+
+                        "methods":
+                        [
+                        {
+                        "method_name":"InitReceipt",
+                        "objects":""
+                        },
+                        {
+                        "method_name":"SetReceiptData",
+                        "objects":
+                        [{
+                        "tag_name":"header",
+                        "values":[
+                        "***今月は休/{}まず営業致します***",
+                        "2011 年 06 月 23 日(木)08:32 ﾚｼﾞ 0003",
+                        "9900000043210000"
+                        ]
+                        },
+                        {
+                        "tag_name":"memberid",
+                        "values":[
+                        "9900010037240007"
+                        ]
+                        },
+                        {
+                        "tag_name":"shopid",
+                        "values":[
+                        "9999"
+                        ]
+                        },
+                        {
+                        "tag_name":"date",
+                        "values":[
+                        "2022-03-28 20:04"
+                        ]
+                        },
+                        {
+                        "tag_name":"regNo",
+                        "values":[
+                        "01"
+                        ]
+                        },
+                        {
+                        "tag_name":"operation",
+                        "values":[
+                        "0"
+                        ]
+                        },
+                        {
+                        "tag_name":"total",
+                        "values":[
+                        "20567"
+                        ]
+                        },
+                        {
+                        "tag_name":"receiptNo",
+                        "values":[
+                        "0386"
+                        ]
+                        },
+                        {
+                        "tag_name":"footer",
+                        "values":[
+                        "小計 \\20,540",
+                        "内税(ﾀｲｼｮｳ 10000:952) ",
+                        "外税(ﾀｲｼｮｳ 540) \\27",
+                        "合計 \\２０，５６７",
+                        "現計 \\20,567",
+                        "お預り \\21,000",
+                        "お釣り \\４３３",
+                        "                      ",
+                        "ﾚｼｰﾄ No0386 店 No00030"
+                        ]
+                        },
+                        {
+                        "tag_name":"originalreceiptdata",
+                        "values":[
+                        "***今月は休まず営業致します*** ",
+                        " 只今各売場におきまして ",
+                        " ###今年流行の冬物祭開催中！### ",
+                        " どうぞご利用ください！ 本日も ",
+                        " ご来店 誠に有難うございます ",
+                        " ",
+                        "2011 年 06 月 23 日(木)08:32 ﾚｼﾞ 0003",
+                        " ",
+                        "No002 土屋美香 ",
+                        "SRID ",
+                        "9900000043210000 ",
+                        " ",
+                        " 4932750752139JAN @line@1@/line@@jancode@",
+                        " 3 ｺ 単 180 @line@1@/line@",
+                        "A007224 手芸綿 100g @line@1@/line@@name@@categorycode@",
+                        " \\540@line@1@/line@@price@",
+                        " 1812345678900JAN2134567912341 @line@2@/line@@jancode@",
+                        " 2 ｺ 単 1000 @line@2@/line@",
+                        " 411525 内冬物セーター 茶色 @line@2@/line@@name@@categorycode@",
+                        " \\20,000■@line@2@/line@@price@",
+                        " ",
+                        "小計 \\20,540",
+                        "内税(ﾀｲｼｮｳ 10000:952) ",
+                        "外税(ﾀｲｼｮｳ 540) \\27",
+                        "合計 @fontsizeH@\\20,567@/fontsizeH@",
+                        " ",
+                        "現計 \\20,567",
+                        "お預り \\21,000",
+                        "お釣り @fontsizeH@\\433@/fontsizeH@",
+                        " ",
+                        "ﾚｼｰﾄ No0386 店 No00030"
+                        ]
+                        }
+                        ]},
+                        {
+                        "method_name":"AddReceiptDataToList",
+                        "objects":
+                        [{
+                        "tag_name":"lines",
+                        "values":[
+                        "itemname:手芸綿 100g",
+                        "price:540",
+                        "categorycode:007224",
+                        "jancode:4932750752139",
+                        "count:3"
+                        ]
+                        },
+                        {
+                        "tag_name":"lines",
+                        "values":[
+                        "itemname:冬物セーター 茶色",
+                        "price: 1000",
+                        "categorycode:411525",
+                        "jancode:1812345678900",
+                        "count:2"
+                        ]
+                        }
+                        ]
+                        },
+                        {
+                        "method_name":"SendReceiptRequest",
+                        "objects":""
+                        }
+                        ]
+                        }
+
+
+                    </textarea>
+                </td>
+            </tr>
+
+        </table>
+    </form>
+</body>
+</html>
